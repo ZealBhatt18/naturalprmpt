@@ -39,7 +39,7 @@ def reschedule_appointment(name, email, old_date, old_time, new_date, new_time):
     return "success"
 
 def get_available_slots(date):
-    all_slots = ["09:00:00", "10:00:00", "11:00:00", "12:00:00", "14:00:00", "15:00:00", "16:00:00", "17:00:00"]
+    all_slots = ["09:00:00", "10:00:00", "11:00:00", "12:00:00", "15:00:00", "16:00:00", "17:00:00"]
     cursor.execute("SELECT time FROM natappoit WHERE date=%s", (date,))
     booked = [row[0] for row in cursor.fetchall()]
     return [slot for slot in all_slots if slot not in booked]
