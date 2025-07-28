@@ -207,17 +207,32 @@ while True:
         user_msg = input("You: ")
         history.append({"role": "user", "content": user_msg})
         assistant_response = ask_ollama(prompt, history)
-        print(f"🤖 Assistant: {assistant_response}")
-        history.append({"role": "assistant", "content": assistant_response})
 
+        # Check if "All details received" was already printed before
+        already_confirmed = any(
+            "all details received:" in msg["content"].lower()
+            for msg in history if msg["role"] == "assistant"
+        )
+
+        # Only print if not already printed OR it's the first time
+        if not already_confirmed or "all details received:" in assistant_response.lower():
+            print(f"🤖 Assistant: {assistant_response}")
+
+        # Don't add assistant message to history if it's the final confirmation
+        if "all details received:" not in assistant_response.lower():
+            history.append({"role": "assistant", "content": assistant_response})
+
+        # Once final confirmation is detected, extract and process
         if "all details received:" in assistant_response.lower():
             try:
                 data = extractor(assistant_response)
+                print("\n📥 Processing your booking...")
                 handler(**data)
                 break
             except Exception as e:
                 print(f"❌ Failed to parse: {e}")
                 break
+
 
         if action == "book":
             date_match = re.search(r"Date:\s*(\d{4}-\d{2}-\d{2})", assistant_response)
