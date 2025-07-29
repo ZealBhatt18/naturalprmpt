@@ -1,5 +1,5 @@
 import os, re, requests
-from datetime import datetime, timedelta
+from datetime import datetime
 from database import (
     book_appointment as db_book,
     cancel_appointment as db_cancel,
@@ -28,7 +28,7 @@ You are a helpful and structured assistant that books dentist appointments.
 - If the user provides multiple fields in one response, extract and save them.
 - If the user gives ambiguous or partial data (like just “Monday” or “next week”), ask for proper format again.
 
- Once all 5 fields are collected, respond with **exactly this format (no more, no less)**:
+ Once all 5 fields are collected, respond with **exactly this format (no more, no less)** for the first block:
 
 All details received:
 - Name: John Doe
@@ -37,12 +37,17 @@ All details received:
 - Date: 2025-07-22
 - Time: 10:30 AM
 
+🟢 Then, **on the next line**, after this block, show a short and polite booking confirmation like this:
+
+✅ Your appointment has been booked. Thank you!
+
  STRICT RULES:
 - Use a colon `:` after “All details received”
 - Use a dash `-` to start each detail line
-- Do NOT thank the user, explain anything, or say "appointment booked"
 - Do NOT skip or reorder fields
-- Do NOT include anything else before or after the final 5-line output
+- Show the confirmation message on a new line after the 5-line block
+- Do NOT include anything else before or after the output
+- The confirmation message must be: `✅ Your appointment has been booked. Thank you!`
 
  Example:
 If the user says:
@@ -51,7 +56,17 @@ If the user says:
 And hasn't yet provided an email, your next message should be:
 > Can you please provide your email address?
 
- Keep the interaction natural, brief, and respectful. Don't repeat already collected data. Be strict with format.
+Once all details are received, the final reply should be:
+
+All details received:
+- Name: Priya Sharma
+- Email: priya@example.com
+- Reason: Root Canal
+- Date: 2025-07-28
+- Time: 02:00 PM
+✅ Your appointment has been booked. Thank you!
+
+ Keep the interaction natural, brief, and respectful. Don’t repeat already collected data. Be strict with format.
 """
 
 
@@ -95,8 +110,7 @@ All details received:
 
 # ---- API CALL ----
 def ask_ollama(prompt, history):
-    messages = [{"role": "system", "content": prompt}]
-    messages += history
+    messages = [{"role": "system", "content": prompt}] + history
     response = requests.post(OLLAMA_URL, json={
         "model": MODEL,
         "stream": False,
@@ -173,92 +187,3 @@ def reschedule_appointment(name, email, old_date, old_time, new_date, new_time):
         "slot_taken": "❌ New slot is booked."
     }
     print(messages.get(status, "❌ Unknown error."))
-
-# ---- MAIN LOOP ----
-while True:
-    print("\n🦷 Dentist Assistant")
-    action = input("What would you like to do? (book / reschedule / cancel / exit): ").strip().lower()
-
-    if action == "exit":
-        print("👋 Goodbye!")
-        break
-    elif action not in ("book", "reschedule", "cancel"):
-        print("❌ Invalid action.")
-        continue
-
-    prompt = {
-        "book": BOOK_APPOINTMENT_PROMPT,
-        "reschedule": RESCHEDULE_PROMPT,
-        "cancel": CANCEL_PROMPT
-    }[action]
-    extractor = {
-        "book": extract_book_fields,
-        "reschedule": extract_reschedule_fields,
-        "cancel": extract_cancel_fields
-    }[action]
-    handler = {
-        "book": book_appointment,
-        "reschedule": reschedule_appointment,
-        "cancel": cancel_appointment
-    }[action]
-
-    history = []
-    while True:
-        user_msg = input("You: ")
-        history.append({"role": "user", "content": user_msg})
-        assistant_response = ask_ollama(prompt, history)
-
-        # Check if "All details received" was already printed before
-        already_confirmed = any(
-            "all details received:" in msg["content"].lower()
-            for msg in history if msg["role"] == "assistant"
-        )
-
-        # Only print if not already printed OR it's the first time
-        if not already_confirmed or "all details received:" in assistant_response.lower():
-            print(f"🤖 Assistant: {assistant_response}")
-
-        # Don't add assistant message to history if it's the final confirmation
-        if "all details received:" not in assistant_response.lower():
-            history.append({"role": "assistant", "content": assistant_response})
-
-        # Once final confirmation is detected, extract and process
-        if "all details received:" in assistant_response.lower():
-            try:
-                data = extractor(assistant_response)
-                print("\n📥 Processing your booking...")
-                handler(**data)
-                break
-            except Exception as e:
-                print(f"❌ Failed to parse: {e}")
-                break
-
-
-        if action == "book":
-            date_match = re.search(r"Date:\s*(\d{4}-\d{2}-\d{2})", assistant_response)
-            if date_match:
-                entered_date = date_match.group(1).strip()
-                slots = get_available_slots(entered_date)
-                if slots:
-                    print(f"\n📆 Available slots on {entered_date}:")
-                    for s in slots:
-                        try:
-                            print(f"  - {datetime.strptime(s, '%H:%M:%S').strftime('%I:%M %p')}")
-                        except ValueError:
-                            print(f"  - {s}")
-                else:
-                    print(f"\n❌ No slots on {entered_date}. Searching future days...")
-                    for i in range(1, 5):
-                        future_date = (datetime.strptime(entered_date, "%Y-%m-%d") + timedelta(days=i)).strftime("%Y-%m-%d")
-                        future_slots = get_available_slots(future_date)
-                        if future_slots:
-                            print(f"📅 Next available: {future_date}")
-                            use_next = input("Use this date? (yes/no): ").strip().lower()
-                            if use_next == "yes":
-                                history.append({"role": "user", "content": f"My new preferred date is {future_date}"})
-                                break
-
-    again = input("\n🔁 Start new session? (yes/no): ").strip().lower()
-    if again != "yes":
-        print("👋 Goodbye!")
-        break
